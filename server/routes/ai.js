@@ -1,13 +1,89 @@
 const express = require('express');
 const auth = require('../middleware/auth');
-const { callOpenRouter } = require('../services/openrouter');
+const { aiRateLimiter } = require('../middleware/rateLimiter');
+const { callOpenRouter, parseAIJson } = require('../services/openrouter');
+const {
+  RolePlaySession, PitchPractice, LeaderboardEntry, CoachingPlan,
+  MessageHistory, ProductKnowledge, BuyerPersona, User
+} = require('../models');
 const router = express.Router();
 
-// AI Role Play - Start a conversation with AI buyer
-router.post('/roleplay', auth, async (req, res) => {
+// Apply auth + rate limit to all AI routes
+router.use(auth);
+router.use(aiRateLimiter);
+
+// Helper: extract numeric score from AI text
+function extractScore(text) {
+  if (!text) return null;
+  const patterns = [
+    /overall\s+(?:performance\s+)?score[:\s]+(\d+)/i,
+    /scored?\s+(\d+)/i,
+    /(\d+)\s*\/\s*100/,
+    /score[:\s]+(\d+)/i,
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m) return Math.min(100, Math.max(0, parseInt(m[1])));
+  }
+  return null;
+}
+
+// Helper: upsert leaderboard entry
+async function updateLeaderboard(userId, score) {
+  if (!userId || score === null) return;
   try {
-    const { scenario, userMessage, buyerPersona } = req.body;
-    const systemPrompt = `You are an AI buyer persona for sales training. You are playing the role of: ${buyerPersona || 'a senior decision maker at a mid-market company'}.
+    const user = await User.findByPk(userId);
+    if (!user) return;
+
+    let entry = await LeaderboardEntry.findOne({ where: { userId } });
+    if (entry) {
+      const newTotal = (parseFloat(entry.totalScore || 0) * parseInt(entry.sessionsCompleted || 0) + score) / (parseInt(entry.sessionsCompleted || 0) + 1);
+      await entry.update({
+        totalScore: Math.round(newTotal * 10) / 10,
+        sessionsCompleted: parseInt(entry.sessionsCompleted || 0) + 1,
+        userName: user.name,
+      });
+    } else {
+      await LeaderboardEntry.create({
+        userId,
+        userName: user.name,
+        totalScore: score,
+        sessionsCompleted: 1,
+        winRate: score >= 70 ? 1 : 0,
+        period: new Date().toISOString().substring(0, 7),
+      });
+    }
+  } catch (err) {
+    console.error('Leaderboard update error:', err.message);
+  }
+}
+
+// POST /api/ai/roleplay - with session continuity
+router.post('/roleplay', async (req, res) => {
+  try {
+    const { scenario, userMessage, buyerPersona, sessionId } = req.body;
+
+    // Retrieve conversation history
+    let history = [];
+    if (sessionId) {
+      const msgs = await MessageHistory.findAll({
+        where: { sessionId },
+        order: [['createdAt', 'ASC']],
+      });
+      history = msgs.map(m => ({ role: m.role, content: m.content }));
+    }
+
+    // DB grounding: inject relevant ProductKnowledge and BuyerPersona
+    const products = await ProductKnowledge.findAll({ limit: 5 });
+    const personas = await BuyerPersona.findAll({ limit: 3 });
+    const productContext = products.length > 0
+      ? `\n\nAvailable Products: ${products.map(p => `${p.productName}: ${p.description}`).join('; ')}`
+      : '';
+    const personaContext = personas.length > 0
+      ? `\n\nBuyer Personas: ${personas.map(p => `${p.name} (${p.title}): ${p.painPoints}`).join('; ')}`
+      : '';
+
+    const systemContent = `You are an AI buyer persona for sales training. You are playing the role of: ${buyerPersona || 'a senior decision maker at a mid-market company'}.
 
 Scenario: ${scenario || 'General sales meeting'}
 
@@ -15,250 +91,526 @@ Instructions:
 - Stay in character as the buyer
 - Present realistic objections and questions
 - Be professional but challenging
-- Respond naturally as a real buyer would
-- After 3-4 exchanges, provide a brief assessment of the salesperson's performance
-- Rate their performance on: Rapport Building, Need Discovery, Value Proposition, Objection Handling (each out of 10)
+- After 3-4 exchanges, add "---ASSESSMENT---" with scores: Rapport Building, Need Discovery, Value Proposition, Objection Handling (each out of 10) and Overall Score out of 100
+${productContext}${personaContext}`;
 
-Format your response as the buyer's reply. If the conversation has had enough exchanges, add a section marked "---ASSESSMENT---" with scores and feedback.`;
+    // Build messages array with history
+    const messages = [
+      { role: 'system', content: systemContent },
+      ...history,
+      { role: 'user', content: userMessage }
+    ];
 
-    const response = await callOpenRouter(systemPrompt, userMessage);
-    res.json({ response, timestamp: new Date().toISOString() });
+    const response = await callOpenRouter(null, null, { messages });
+
+    // Save turn to message history
+    if (sessionId) {
+      await MessageHistory.create({ sessionId, role: 'user', content: userMessage });
+      await MessageHistory.create({ sessionId, role: 'assistant', content: response });
+
+      // Extract score and update session + leaderboard
+      const score = extractScore(response);
+      if (response.includes('---ASSESSMENT---') && score !== null) {
+        await RolePlaySession.update(
+          { transcript: response, score, status: 'completed', feedback: response },
+          { where: { id: sessionId } }
+        );
+        await updateLeaderboard(req.user?.id, score);
+      }
+    }
+
+    res.json({ response, sessionId, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Pitch Analysis
-router.post('/analyze-pitch', auth, async (req, res) => {
+// POST /api/ai/analyze-pitch - persist to PitchPractice
+router.post('/analyze-pitch', async (req, res) => {
   try {
-    const { pitchText, targetAudience, productName } = req.body;
-    const systemPrompt = `You are an expert sales coach analyzing a sales pitch. Provide detailed, actionable feedback.
+    const { pitchText, targetAudience, productName, pitchId } = req.body;
+    const systemPrompt = `You are an expert sales coach analyzing a sales pitch. Return ONLY valid JSON, no markdown:
+{
+  "overall_score": 85,
+  "scores": { "clarity": 8, "value_proposition": 9, "emotional_appeal": 7, "call_to_action": 8, "credibility": 7, "audience_fit": 9 },
+  "strengths": ["...", "...", "..."],
+  "improvements": ["...", "...", "..."],
+  "improved_pitch": "...",
+  "key_talking_points": ["..."]
+}`;
 
-Product: ${productName || 'Not specified'}
-Target Audience: ${targetAudience || 'General'}
+    const response = await callOpenRouter(systemPrompt, `Product: ${productName || 'Not specified'}\nAudience: ${targetAudience || 'General'}\n\nPitch:\n${pitchText}`);
 
-Analyze the pitch on these criteria and provide scores (1-10) for each:
-1. **Clarity** - Is the message clear and concise?
-2. **Value Proposition** - Does it clearly communicate value?
-3. **Emotional Appeal** - Does it connect emotionally?
-4. **Call to Action** - Is there a clear next step?
-5. **Credibility** - Are claims backed by evidence?
-6. **Audience Fit** - Is it tailored to the target audience?
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response, overall_score: 0 }; }
 
-Provide:
-- Overall Score (out of 100)
-- Top 3 Strengths
-- Top 3 Areas for Improvement
-- Rewritten version of the pitch (improved)
-- Key talking points to emphasize`;
+    // Persist to PitchPractice if pitchId provided
+    if (pitchId) {
+      await PitchPractice.update(
+        { aiFeedback: JSON.stringify(parsed), score: parsed.overall_score, status: 'reviewed' },
+        { where: { id: pitchId } }
+      );
+    }
 
-    const response = await callOpenRouter(systemPrompt, `Please analyze this pitch:\n\n${pitchText}`);
-    res.json({ analysis: response, timestamp: new Date().toISOString() });
+    // Update leaderboard if score found
+    if (parsed.overall_score) {
+      await updateLeaderboard(req.user?.id, parsed.overall_score);
+    }
+
+    res.json({ analysis: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Objection Response Generator
-router.post('/handle-objection', auth, async (req, res) => {
+// POST /api/ai/handle-objection
+router.post('/handle-objection', async (req, res) => {
   try {
     const { objection, context, industry } = req.body;
-    const systemPrompt = `You are an expert sales trainer specializing in objection handling.
-Industry context: ${industry || 'General'}
-Additional context: ${context || 'None'}
-
-For the given objection, provide:
-1. **Why they're saying this** - The underlying concern
-2. **Acknowledge** - How to validate their concern
-3. **Bridge** - How to transition to your response
-4. **Response Options** - 3 different response strategies (Conservative, Balanced, Bold)
-5. **Follow-up Questions** - 2-3 questions to deepen understanding
-6. **What NOT to say** - Common mistakes to avoid
-7. **Practice Script** - A complete example dialogue`;
-
-    const response = await callOpenRouter(systemPrompt, `Handle this objection: "${objection}"`);
-    res.json({ response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are an expert sales trainer specializing in objection handling. Return ONLY valid JSON:
+{
+  "underlying_concern": "...",
+  "acknowledge": "...",
+  "bridge": "...",
+  "response_options": { "conservative": "...", "balanced": "...", "bold": "..." },
+  "follow_up_questions": ["...", "..."],
+  "what_not_to_say": ["...", "..."],
+  "practice_script": "..."
+}`;
+    const response = await callOpenRouter(systemPrompt, `Industry: ${industry || 'General'}\nContext: ${context || 'None'}\nObjection: "${objection}"`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
+    res.json({ response: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Email Generator
-router.post('/generate-email', auth, async (req, res) => {
+// POST /api/ai/generate-email
+router.post('/generate-email', async (req, res) => {
   try {
     const { emailType, context, recipientInfo, tone } = req.body;
-    const systemPrompt = `You are an expert sales email copywriter. Generate a professional sales email.
-
-Email Type: ${emailType || 'Cold Outreach'}
-Tone: ${tone || 'Professional'}
-Recipient: ${recipientInfo || 'Decision maker'}
-
-Create an email with:
-1. **Subject Line** - 3 options (A/B test ready)
-2. **Email Body** - Complete email with personalization placeholders [brackets]
-3. **Key Elements** - Why each section works
-4. **Variations** - Short version (under 100 words) and detailed version
-5. **Best Send Time** - Recommended day/time
-6. **Follow-up Sequence** - 3 follow-up emails for if no response`;
-
-    const response = await callOpenRouter(systemPrompt, `Generate an email for: ${context || 'initial outreach to a new prospect'}`);
-    res.json({ email: response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are an expert sales email copywriter. Return ONLY valid JSON:
+{
+  "subject_lines": ["...", "...", "..."],
+  "email_body": "...",
+  "key_elements": ["..."],
+  "short_version": "...",
+  "best_send_time": "...",
+  "follow_up_sequence": ["...", "...", "..."]
+}`;
+    const response = await callOpenRouter(systemPrompt, `Type: ${emailType || 'Cold Outreach'}\nTone: ${tone || 'Professional'}\nRecipient: ${recipientInfo || 'Decision maker'}\nContext: ${context || 'Initial outreach'}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { email_body: response }; }
+    res.json({ email: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Call Script Generator
-router.post('/generate-script', auth, async (req, res) => {
+// POST /api/ai/generate-script
+router.post('/generate-script', async (req, res) => {
   try {
     const { scriptType, industry, targetRole, objective } = req.body;
-    const systemPrompt = `You are an expert sales script writer. Create a complete, natural-sounding call script.
-
-Script Type: ${scriptType || 'Cold Call'}
-Industry: ${industry || 'Technology'}
-Target Role: ${targetRole || 'Decision Maker'}
-Objective: ${objective || 'Book a meeting'}
-
-Provide:
-1. **Opening** - First 15 seconds (critical)
-2. **Permission to Continue** - How to earn more time
-3. **Value Statement** - Compelling reason to listen
-4. **Discovery Questions** - 3-5 key questions
-5. **Objection Handles** - Top 3 likely objections with responses
-6. **Close** - How to secure the next step
-7. **Voicemail Version** - 30-second voicemail script
-8. **Tips** - Tone, pacing, and delivery advice`;
-
-    const response = await callOpenRouter(systemPrompt, `Create a ${scriptType || 'cold call'} script for ${industry || 'technology'} targeting ${targetRole || 'decision makers'}`);
-    res.json({ script: response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are an expert sales script writer. Return ONLY valid JSON:
+{
+  "opening": "...",
+  "permission_to_continue": "...",
+  "value_statement": "...",
+  "discovery_questions": ["..."],
+  "objection_handles": [{ "objection": "...", "response": "..." }],
+  "close": "...",
+  "voicemail_version": "...",
+  "tips": ["..."]
+}`;
+    const response = await callOpenRouter(systemPrompt, `Type: ${scriptType || 'Cold Call'}\nIndustry: ${industry || 'Technology'}\nRole: ${targetRole || 'Decision Maker'}\nObjective: ${objective || 'Book a meeting'}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
+    res.json({ script: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Deal Strategy Advisor
-router.post('/deal-strategy', auth, async (req, res) => {
+// POST /api/ai/deal-strategy
+router.post('/deal-strategy', async (req, res) => {
   try {
     const { dealInfo, challenges, stakeholders } = req.body;
-    const systemPrompt = `You are a strategic sales advisor helping close complex deals.
-
-Analyze the deal situation and provide:
-1. **Deal Health Assessment** - Overall health score (1-10) with reasoning
-2. **Risk Analysis** - Top 3 risks and mitigation strategies
-3. **Stakeholder Strategy** - How to engage each stakeholder
-4. **Recommended Next Steps** - Prioritized action plan (next 7 days)
-5. **Competitive Strategy** - How to position against competitors
-6. **Closing Strategy** - Best approach to close this deal
-7. **Timeline** - Estimated close timeline with milestones
-8. **Red Flags** - Warning signs to watch for`;
-
-    const response = await callOpenRouter(systemPrompt, `Deal: ${dealInfo || 'Enterprise software deal'}\nChallenges: ${challenges || 'None specified'}\nStakeholders: ${stakeholders || 'Not mapped'}`);
-    res.json({ strategy: response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are a strategic sales advisor. Return ONLY valid JSON:
+{
+  "deal_health_score": 7,
+  "risks": [{ "risk": "...", "mitigation": "..." }],
+  "stakeholder_strategy": [{ "stakeholder": "...", "approach": "..." }],
+  "next_steps": ["..."],
+  "competitive_strategy": "...",
+  "closing_strategy": "...",
+  "timeline": "...",
+  "red_flags": ["..."]
+}`;
+    const response = await callOpenRouter(systemPrompt, `Deal: ${dealInfo || 'Enterprise deal'}\nChallenges: ${challenges || 'None'}\nStakeholders: ${stakeholders || 'Not mapped'}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
+    res.json({ strategy: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Coaching Feedback
-router.post('/coaching-feedback', auth, async (req, res) => {
+// POST /api/ai/coaching-feedback
+router.post('/coaching-feedback', async (req, res) => {
   try {
     const { transcript, context } = req.body;
-    const systemPrompt = `You are an expert sales coach reviewing a sales conversation. Provide detailed coaching feedback.
+    const systemPrompt = `You are an expert sales coach. Return ONLY valid JSON:
+{
+  "overall_score": 78,
+  "scorecard": { "rapport_building": 8, "discovery_quality": 7, "value_articulation": 8, "objection_handling": 7, "closing_technique": 7, "active_listening": 9 },
+  "things_done_well": ["...", "...", "..."],
+  "areas_to_improve": ["...", "...", "..."],
+  "key_moments": ["..."],
+  "recommended_training": ["..."],
+  "rewrite_suggestion": "..."
+}`;
+    const response = await callOpenRouter(systemPrompt, `Context: ${context || 'Sales call'}\n\nTranscript:\n${transcript}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
 
-Context: ${context || 'Sales call'}
+    // Update leaderboard
+    if (parsed.overall_score) {
+      await updateLeaderboard(req.user?.id, parsed.overall_score);
+    }
 
-Analyze and provide:
-1. **Overall Performance Score** - Out of 100
-2. **Scorecard**:
-   - Rapport Building (1-10)
-   - Discovery Quality (1-10)
-   - Value Articulation (1-10)
-   - Objection Handling (1-10)
-   - Closing Technique (1-10)
-   - Active Listening (1-10)
-3. **Top 3 Things Done Well** - Specific examples from the transcript
-4. **Top 3 Areas to Improve** - With specific coaching tips
-5. **Key Moments** - Critical turning points in the conversation
-6. **Recommended Training** - Specific modules or skills to develop
-7. **Rewrite** - How a specific weak moment could have been handled better`;
-
-    const response = await callOpenRouter(systemPrompt, `Review this sales conversation:\n\n${transcript}`);
-    res.json({ feedback: response, timestamp: new Date().toISOString() });
+    res.json({ feedback: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Battle Card Generator
-router.post('/generate-battlecard', auth, async (req, res) => {
+// POST /api/ai/generate-battlecard - with DB grounding
+router.post('/generate-battlecard', async (req, res) => {
   try {
     const { competitorName, ourProduct, industry } = req.body;
-    const systemPrompt = `You are a competitive intelligence analyst. Create a comprehensive battle card.
 
-Our Product: ${ourProduct || 'AI Sales Training Platform'}
-Industry: ${industry || 'Sales Technology'}
+    // DB grounding: get our product knowledge
+    const products = await ProductKnowledge.findAll({ limit: 10 });
+    const productContext = products.length > 0
+      ? `\nOur Products from DB: ${products.map(p => `${p.productName}: ${p.competitiveAdvantage}`).join('; ')}`
+      : '';
 
-Create a battle card with:
-1. **Competitor Overview** - Brief summary
-2. **Their Strengths** - What they do well
-3. **Their Weaknesses** - Where they fall short
-4. **Our Advantages** - Why we win
-5. **Landmine Questions** - Questions to ask prospects that highlight competitor weaknesses
-6. **Counter Arguments** - How to respond when they come up
-7. **Win/Loss Insights** - Common reasons we win or lose against them
-8. **Pricing Intelligence** - Known pricing and packaging
-9. **Quick Response Guide** - If a prospect says "We're looking at [competitor]", say...`;
-
-    const response = await callOpenRouter(systemPrompt, `Create a battle card for competitor: ${competitorName}`);
-    res.json({ battlecard: response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are a competitive intelligence analyst. Return ONLY valid JSON:
+{
+  "competitor_overview": "...",
+  "their_strengths": ["..."],
+  "their_weaknesses": ["..."],
+  "our_advantages": ["..."],
+  "landmine_questions": ["..."],
+  "counter_arguments": [{ "objection": "...", "response": "..." }],
+  "pricing_intelligence": "...",
+  "quick_response": "..."
+}`;
+    const response = await callOpenRouter(systemPrompt, `Competitor: ${competitorName}\nOur Product: ${ourProduct || 'AI Sales Training Platform'}\nIndustry: ${industry || 'Sales Technology'}${productContext}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
+    res.json({ battlecard: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Persona Simulator
-router.post('/simulate-persona', auth, async (req, res) => {
+// POST /api/ai/simulate-persona - with DB grounding
+router.post('/simulate-persona', async (req, res) => {
   try {
-    const { personaInfo, question } = req.body;
-    const systemPrompt = `You are simulating a buyer persona for sales training purposes.
+    const { personaInfo, question, personaId } = req.body;
 
-Persona Details: ${personaInfo || 'Senior executive at mid-market company'}
+    // DB grounding: get specific persona if personaId provided
+    let personaData = personaInfo;
+    if (personaId) {
+      const persona = await BuyerPersona.findByPk(personaId);
+      if (persona) {
+        personaData = `${persona.name} (${persona.title} at ${persona.company}): Pain points: ${persona.painPoints}. Motivations: ${persona.motivations}. Communication style: ${persona.communicationStyle}`;
+      }
+    }
 
-Stay completely in character. Respond as this buyer would:
-- Use their communication style
-- Reference their pain points naturally
-- Show their typical concerns and priorities
-- React authentically to sales approaches
-- If asked directly, share what would convince you to buy`;
-
+    const systemPrompt = `You are simulating a buyer persona for sales training. Persona: ${personaData || 'Senior executive at mid-market company'}. Stay completely in character.`;
     const response = await callOpenRouter(systemPrompt, question || 'Tell me about your current challenges');
     res.json({ response, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-// AI Negotiation Coach
-router.post('/negotiation-coach', auth, async (req, res) => {
+// POST /api/ai/negotiation-coach
+router.post('/negotiation-coach', async (req, res) => {
   try {
     const { situation, theirPosition, ourPosition } = req.body;
-    const systemPrompt = `You are an expert negotiation coach for B2B sales.
-
-Analyze this negotiation situation and provide:
-1. **Situation Assessment** - What is really happening
-2. **Their Likely BATNA** - What alternatives they probably have
-3. **Power Analysis** - Who has leverage and why
-4. **Recommended Strategy** - Step-by-step negotiation plan
-5. **Tactics to Use** - Specific techniques for this situation
-6. **What to Say** - Key phrases and talking points
-7. **What to Avoid** - Common mistakes in this scenario
-8. **Best/Worst Case** - Realistic outcome scenarios
-9. **Walk-Away Point** - When to step back`;
-
-    const response = await callOpenRouter(systemPrompt, `Situation: ${situation}\nTheir position: ${theirPosition || 'Not specified'}\nOur position: ${ourPosition || 'Not specified'}`);
-    res.json({ advice: response, timestamp: new Date().toISOString() });
+    const systemPrompt = `You are an expert negotiation coach. Return ONLY valid JSON:
+{
+  "situation_assessment": "...",
+  "their_batna": "...",
+  "power_analysis": "...",
+  "recommended_strategy": ["..."],
+  "tactics": ["..."],
+  "what_to_say": ["..."],
+  "what_to_avoid": ["..."],
+  "best_case": "...",
+  "worst_case": "...",
+  "walk_away_point": "..."
+}`;
+    const response = await callOpenRouter(systemPrompt, `Situation: ${situation}\nTheir position: ${theirPosition || 'N/A'}\nOur position: ${ourPosition || 'N/A'}`);
+    let parsed;
+    try { parsed = parseAIJson(response); } catch (_) { parsed = { summary: response }; }
+    res.json({ advice: parsed, timestamp: new Date().toISOString() });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/generate-coaching-plans - weekly batch
+router.post('/generate-coaching-plans', async (req, res) => {
+  try {
+    const users = await User.findAll({ limit: 20 });
+    const plans = [];
+
+    for (const user of users) {
+      // Get last 5 sessions with scores
+      const sessions = await RolePlaySession.findAll({
+        where: { userId: user.id },
+        order: [['createdAt', 'DESC']],
+        limit: 5,
+      });
+
+      const scores = sessions.filter(s => s.score).map(s => s.score);
+      if (scores.length === 0) continue;
+
+      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+
+      const systemPrompt = `You are a sales coaching AI. Return ONLY valid JSON:
+{
+  "goals": "...",
+  "weakest_areas": ["..."],
+  "milestones": ["..."],
+  "weekly_actions": ["..."],
+  "recommended_modules": ["..."]
+}`;
+      const response = await callOpenRouter(systemPrompt,
+        `Sales rep: ${user.name}\nAverage score: ${avgScore.toFixed(1)}/100\nSession scores: ${scores.join(', ')}\nSessions reviewed: ${sessions.length}`
+      );
+
+      let parsed;
+      try { parsed = parseAIJson(response); } catch (_) { parsed = { goals: response }; }
+
+      // Create CoachingPlan in DB
+      const plan = await CoachingPlan.create({
+        title: `AI Coaching Plan - ${user.name} - ${new Date().toISOString().substring(0, 10)}`,
+        userId: user.id,
+        goals: parsed.goals || '',
+        milestones: JSON.stringify(parsed.milestones || []),
+        currentPhase: 'Week 1',
+        startDate: new Date().toISOString().substring(0, 10),
+        status: 'active',
+      });
+
+      plans.push({ user: user.name, plan, ai_analysis: parsed });
+    }
+
+    res.json({ coaching_plans: plans, total: plans.length });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/conversation-analysis — score a transcript on rapport, discovery, objection handling
+router.post('/conversation-analysis', async (req, res) => {
+  try {
+    const { transcript, dealContext, repName } = req.body || {};
+    if (!transcript || !transcript.trim()) return res.status(400).json({ error: 'transcript is required' });
+    const systemPrompt = `You are an elite sales-call analyst. Analyse the transcript across rapport, discovery, value framing, objection handling, next-step setting. Return ONLY valid JSON:
+{
+  "overall_score": 0-100,
+  "dimensions": {
+    "rapport": 0-100, "discovery": 0-100, "value_framing": 0-100,
+    "objection_handling": 0-100, "next_step_close": 0-100, "active_listening": 0-100
+  },
+  "talk_listen_ratio_estimate": "rep:client",
+  "filler_word_count_estimate": 0,
+  "buying_signals": [], "warning_signals": [],
+  "missed_opportunities": [{"moment": "", "why_it_matters": ""}],
+  "coaching_actions": [{"focus_area": "", "drill": ""}],
+  "next_step_recommendation": "",
+  "summary": ""
+}`;
+    const response = await callOpenRouter(systemPrompt, `Rep: ${repName || 'unknown'}\nDeal: ${JSON.stringify(dealContext || {})}\n\nTranscript:\n${transcript}`);
+    const parsed = parseAIJson(response) || { raw: response };
+    if (parsed.overall_score) await updateLeaderboard(req.user?.id, parsed.overall_score);
+    res.json({ analysis: parsed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/deal-stage-progressor — recommend next steps to advance a deal
+router.post('/deal-stage-progressor', async (req, res) => {
+  try {
+    const { deal, lastTouches } = req.body || {};
+    if (!deal) return res.status(400).json({ error: 'deal is required' });
+    const systemPrompt = `You are a B2B deal strategist. Given a deal record + last touches, recommend the highest-leverage next moves. Return ONLY JSON:
+{
+  "current_stage": "",
+  "stage_health_score": 0-100,
+  "stuck_risks": [],
+  "next_best_actions": [{"action": "", "owner": "rep|am|se|exec", "priority": 1-5, "expected_impact": "", "evidence_needed": ""}],
+  "champions_to_engage": [],
+  "decision_makers_to_engage": [],
+  "missing_qualification": [],
+  "win_probability_estimate": 0-1,
+  "forecasted_close_date": "",
+  "recommended_messaging": [{"to": "", "channel": "email|call|inmail", "draft": ""}]
+}`;
+    const response = await callOpenRouter(systemPrompt, `Deal:\n${JSON.stringify(deal, null, 2)}\n\nLast touches:\n${JSON.stringify(lastTouches || [])}`);
+    const parsed = parseAIJson(response) || { raw: response };
+    res.json({ progression: parsed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/competitive-intelligence — generate competitor positioning brief
+router.post('/competitive-intelligence', async (req, res) => {
+  try {
+    const { competitor, ownProduct, dealContext } = req.body || {};
+    if (!competitor) return res.status(400).json({ error: 'competitor is required' });
+    const systemPrompt = `You are a competitive-intelligence analyst. Build a sharp battle brief that helps a rep win against this competitor. Return ONLY JSON:
+{
+  "competitor": "",
+  "their_positioning": "",
+  "their_strengths": [], "their_weaknesses": [],
+  "where_we_win": [{"point": "", "evidence": ""}],
+  "where_we_lose": [{"point": "", "mitigation": ""}],
+  "objection_rebuttals": [{"objection": "", "response": ""}],
+  "trap_questions_to_ask_buyer": [],
+  "pricing_dynamics": "",
+  "common_traps_to_avoid": [],
+  "recommended_proof_assets": [],
+  "summary": ""
+}`;
+    const response = await callOpenRouter(systemPrompt, `Competitor: ${typeof competitor === 'string' ? competitor : JSON.stringify(competitor)}\n\nOur product:\n${JSON.stringify(ownProduct || {})}\n\nDeal context:\n${JSON.stringify(dealContext || {})}`);
+    const parsed = parseAIJson(response) || { raw: response };
+    res.json({ intel: parsed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/objection-database — generate canonical objection responses (audit backlog)
+router.post('/objection-database', async (req, res) => {
+  try {
+    const { product, industry, dealStage, knownObjections, persona } = req.body || {};
+    if (!product) return res.status(400).json({ error: 'product is required' });
+
+    const priorPitches = await PitchPractice.findAll({ order: [['createdAt', 'DESC']], limit: 10 }).catch(() => []);
+    const priorContext = priorPitches.length
+      ? priorPitches.map(p => `- ${(p.aiFeedback || p.transcript || '').toString().slice(0, 240)}`).join('\n')
+      : '(no prior pitch feedback available)';
+
+    const knownArr = Array.isArray(knownObjections)
+      ? knownObjections
+      : (typeof knownObjections === 'string' ? knownObjections.split('\n').map(s => s.trim()).filter(Boolean) : []);
+
+    const systemPrompt = `You are a sales objection-library curator. Build a structured objection database covering the most likely buyer objections for this product/industry/stage and return canonical responses. Return ONLY valid JSON:
+{
+  "product": "",
+  "industry": "",
+  "deal_stage": "",
+  "objections": [
+    {
+      "category": "price|fit|risk|authority|timing|competitor|trust|other",
+      "objection": "",
+      "underlying_concern": "",
+      "ideal_response": "",
+      "supporting_evidence": ["", ""],
+      "follow_up_question": "",
+      "trap_to_avoid": "",
+      "difficulty_1_5": 0
+    }
+  ],
+  "drill_recommendations": [{ "focus_area": "", "drill": "" }],
+  "summary": ""
+}`;
+
+    const userMessage = `Product: ${product}
+Industry: ${industry || 'general B2B'}
+Deal stage: ${dealStage || 'unspecified'}
+Persona: ${persona || 'unspecified'}
+
+Known objections from the team (incorporate and refine these):
+${knownArr.length ? knownArr.map((o, i) => `${i + 1}. ${o}`).join('\n') : '(none provided)'}
+
+Recent pitch feedback excerpts (use to spot recurring objections):
+${priorContext}`;
+
+    const response = await callOpenRouter(systemPrompt, userMessage, { maxTokens: 2400 });
+    const parsed = parseAIJson(response) || { raw: response };
+    res.json({ objection_database: parsed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// POST /api/ai/team-performance-analytics — synthesise leaderboard + recent activity into coaching priorities
+router.post('/team-performance-analytics', async (req, res) => {
+  try {
+    const { period, focus } = req.body || {};
+
+    const leaders = await LeaderboardEntry.findAll({ order: [['totalScore', 'DESC']], limit: 25 }).catch(() => []);
+    const sessions = await RolePlaySession.findAll({ order: [['createdAt', 'DESC']], limit: 30 }).catch(() => []);
+    const pitches = await PitchPractice.findAll({ order: [['createdAt', 'DESC']], limit: 30 }).catch(() => []);
+
+    const leaderText = leaders.length
+      ? leaders.map(l => `- ${l.userName || ('user#' + l.userId)} | totalScore=${l.totalScore} | sessions=${l.sessionsCompleted} | winRate=${l.winRate} | period=${l.period}`).join('\n')
+      : '(no leaderboard data)';
+    const sessionText = sessions.length
+      ? sessions.map(s => `- session#${s.id} userId=${s.userId} score=${s.score ?? 'n/a'} createdAt=${s.createdAt}`).join('\n')
+      : '(no recent sessions)';
+    const pitchText = pitches.length
+      ? pitches.map(p => `- pitch#${p.id} userId=${p.userId} score=${p.score ?? 'n/a'}`).join('\n')
+      : '(no recent pitches)';
+
+    const systemPrompt = `You are a sales-enablement analytics director. Synthesise the team's leaderboard + recent activity into coaching priorities. Return ONLY valid JSON:
+{
+  "period": "",
+  "team_summary": {
+    "active_reps": 0,
+    "avg_score": 0,
+    "median_score": 0,
+    "top_quartile_threshold": 0,
+    "bottom_quartile_threshold": 0,
+    "trend_vs_prior_period": "up|flat|down|insufficient_data"
+  },
+  "top_performers": [{ "rep": "", "why": "" }],
+  "at_risk_reps": [{ "rep": "", "why": "", "recommended_intervention": "" }],
+  "skill_gaps_team_wide": [{ "skill": "", "evidence": "", "drill": "" }],
+  "coaching_priorities_next_2_weeks": [{ "priority": "", "owner": "manager|enablement|peer", "expected_lift": "" }],
+  "recommended_team_drills": [{ "drill": "", "format": "1:1|small_group|all_hands", "duration_minutes": 0 }],
+  "kpi_watchlist": [{ "kpi": "", "current": "", "target": "", "deadline": "" }],
+  "summary": ""
+}`;
+
+    const userMessage = `Period: ${period || 'last 30 days'}
+Manager focus areas: ${focus || 'overall pipeline health'}
+
+Leaderboard (top 25):
+${leaderText}
+
+Recent sessions (last 30):
+${sessionText}
+
+Recent pitches (last 30):
+${pitchText}`;
+
+    const response = await callOpenRouter(systemPrompt, userMessage, { maxTokens: 2400 });
+    const parsed = parseAIJson(response) || { raw: response };
+    res.json({ analytics: parsed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 

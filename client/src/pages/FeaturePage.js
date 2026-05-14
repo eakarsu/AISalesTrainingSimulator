@@ -19,7 +19,8 @@ function FeaturePage({ feature }) {
     setLoading(true);
     try {
       const { data } = await api.get(feature.api);
-      setItems(data);
+      // Handle paginated response { data: [...], pagination: {...} }
+      setItems(Array.isArray(data) ? data : (data.data || []));
     } catch (err) {
       toast.error('Failed to load data');
     } finally {

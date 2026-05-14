@@ -36,6 +36,25 @@ function Sidebar({ features, activeFeature, setActiveFeature, user, onLogout }) 
             {f.label}
           </div>
         ))}
+
+        <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0', paddingTop: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '4px 12px', marginBottom: '4px' }}>Training Tools</div>
+          {[
+            { path: '/roleplay-chat', label: 'Roleplay Chat', icon: '💬' },
+            { path: '/leaderboard-page', label: 'Score Rankings', icon: '🏆' },
+            { path: '/coaching-plans-page', label: 'Coaching Plans', icon: '🏋️' },
+            { path: '/my-sessions', label: 'My Sessions', icon: '📊' },
+          ].map(item => (
+            <div
+              key={item.path}
+              className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+              onClick={() => { setActiveFeature(null); navigate(item.path); }}
+            >
+              <span className="icon">{item.icon}</span>
+              {item.label}
+            </div>
+          ))}
+        </div>
       </nav>
 
       <div className="sidebar-footer">

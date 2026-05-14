@@ -5,7 +5,39 @@ import 'react-toastify/dist/ReactToastify.css';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import FeaturePage from './pages/FeaturePage';
+import RoleplayChatPage from './pages/RoleplayChatPage';
+import LeaderboardPage from './pages/LeaderboardPage';
+import CoachingPlansPage from './pages/CoachingPlansPage';
+import MySessionsPage from './pages/MySessionsPage';
+import ConversationAnalysisPage from './pages/ConversationAnalysisPage';
+import DealStageProgressorPage from './pages/DealStageProgressorPage';
+import CompetitiveIntelligencePage from './pages/CompetitiveIntelligencePage';
+import ObjectionDatabasePage from './pages/ObjectionDatabasePage';
+import TeamPerformanceAnalyticsPage from './pages/TeamPerformanceAnalyticsPage';
 import Sidebar from './components/Sidebar';
+
+// === Batch 07 Gaps & Frontend Mounts ===
+import CfRealtimeCoachingDuringCalls from './pages/CfRealtimeCoachingDuringCalls';
+import CfPostcallAnalysisCoaching from './pages/CfPostcallAnalysisCoaching';
+import CfCompetitorBattlecardGenerator from './pages/CfCompetitorBattlecardGenerator';
+import CfDealProbabilityScorer from './pages/CfDealProbabilityScorer';
+import CfPlaybookLearner from './pages/CfPlaybookLearner';
+import CfNegotiationSimulationWithMultiplePersona from './pages/CfNegotiationSimulationWithMultiplePersona';
+import GapNoObjectiondatabaseLearnFromPastObjecti from './pages/GapNoObjectiondatabaseLearnFromPastObjecti';
+import GapNoConversationanalysisRealCallTranscript from './pages/GapNoConversationanalysisRealCallTranscript';
+import GapNoCompetitiveintelligenceRetrieval from './pages/GapNoCompetitiveintelligenceRetrieval';
+import GapNoDealstageprogressorNextbestaction from './pages/GapNoDealstageprogressorNextbestaction';
+import GapNoRealtimeCallCoachingLiveAudio from './pages/GapNoRealtimeCallCoachingLiveAudio';
+import GapNoSalesPipelineOpportunityManagement from './pages/GapNoSalesPipelineOpportunityManagement';
+import GapNoDealTrackingWithStages from './pages/GapNoDealTrackingWithStages';
+import GapNoCollateralcontentRepositoryCaseStudies from './pages/GapNoCollateralcontentRepositoryCaseStudies';
+import GapNoTeamPerformanceAnalytics from './pages/GapNoTeamPerformanceAnalytics';
+import GapNoSalesEnablementContentLibrary from './pages/GapNoSalesEnablementContentLibrary';
+import GapNoCrmIntegrationSalesforceHubspot from './pages/GapNoCrmIntegrationSalesforceHubspot';
+import GapNoCallRecordingIngestion from './pages/GapNoCallRecordingIngestion';
+import GapNoNotificationsOrAuditLog from './pages/GapNoNotificationsOrAuditLog';
+// === End Batch 07 ===
+
 
 const features = [
   { key: 'scenarios', label: 'Sales Scenarios', icon: '🎯', api: '/scenarios', desc: 'Practice realistic sales situations', aiAction: 'roleplay' },
@@ -71,7 +103,37 @@ function App() {
             {features.map(f => (
               <Route key={f.key} path={`/${f.key}`} element={<FeaturePage feature={f} />} />
             ))}
+            <Route path="/roleplay-chat" element={<RoleplayChatPage />} />
+            <Route path="/leaderboard-page" element={<LeaderboardPage />} />
+            <Route path="/coaching-plans-page" element={<CoachingPlansPage />} />
+            <Route path="/my-sessions" element={<MySessionsPage />} />
+            <Route path="/ai/conversation-analysis" element={<ConversationAnalysisPage />} />
+            <Route path="/ai/deal-stage-progressor" element={<DealStageProgressorPage />} />
+            <Route path="/ai/competitive-intelligence" element={<CompetitiveIntelligencePage />} />
+            <Route path="/ai/objection-database" element={<ObjectionDatabasePage />} />
+            <Route path="/ai/team-performance-analytics" element={<TeamPerformanceAnalyticsPage />} />
             <Route path="*" element={<Navigate to="/" />} />
+          // === Batch 07 Gaps & Frontend Mounts ===
+          <Route path='/cf-realtime-coaching-during-calls' element={<CfRealtimeCoachingDuringCalls />} />
+          <Route path='/cf-postcall-analysis-coaching' element={<CfPostcallAnalysisCoaching />} />
+          <Route path='/cf-competitor-battlecard-generator' element={<CfCompetitorBattlecardGenerator />} />
+          <Route path='/cf-deal-probability-scorer' element={<CfDealProbabilityScorer />} />
+          <Route path='/cf-playbook-learner' element={<CfPlaybookLearner />} />
+          <Route path='/cf-negotiation-simulation-with-multiple-persona' element={<CfNegotiationSimulationWithMultiplePersona />} />
+          <Route path='/gap-no-objectiondatabase-learn-from-past-objecti' element={<GapNoObjectiondatabaseLearnFromPastObjecti />} />
+          <Route path='/gap-no-conversationanalysis-real-call-transcript' element={<GapNoConversationanalysisRealCallTranscript />} />
+          <Route path='/gap-no-competitiveintelligence-retrieval' element={<GapNoCompetitiveintelligenceRetrieval />} />
+          <Route path='/gap-no-dealstageprogressor-nextbestaction' element={<GapNoDealstageprogressorNextbestaction />} />
+          <Route path='/gap-no-realtime-call-coaching-live-audio' element={<GapNoRealtimeCallCoachingLiveAudio />} />
+          <Route path='/gap-no-sales-pipeline-opportunity-management' element={<GapNoSalesPipelineOpportunityManagement />} />
+          <Route path='/gap-no-deal-tracking-with-stages' element={<GapNoDealTrackingWithStages />} />
+          <Route path='/gap-no-collateralcontent-repository-case-studies' element={<GapNoCollateralcontentRepositoryCaseStudies />} />
+          <Route path='/gap-no-team-performance-analytics' element={<GapNoTeamPerformanceAnalytics />} />
+          <Route path='/gap-no-sales-enablement-content-library' element={<GapNoSalesEnablementContentLibrary />} />
+          <Route path='/gap-no-crm-integration-salesforce-hubspot' element={<GapNoCrmIntegrationSalesforceHubspot />} />
+          <Route path='/gap-no-call-recording-ingestion' element={<GapNoCallRecordingIngestion />} />
+          <Route path='/gap-no-notifications-or-audit-log' element={<GapNoNotificationsOrAuditLog />} />
+          // === End Batch 07 ===
           </Routes>
         </main>
       </div>

@@ -209,6 +209,14 @@ const LeaderboardEntry = sequelize.define('LeaderboardEntry', {
   period: { type: DataTypes.STRING }
 }, { tableName: 'leaderboard', timestamps: true });
 
+// 17. Message History (for roleplay session continuity)
+const MessageHistory = sequelize.define('MessageHistory', {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  sessionId: { type: DataTypes.INTEGER, references: { model: 'role_play_sessions', key: 'id' } },
+  role: { type: DataTypes.ENUM('user', 'assistant', 'system'), allowNull: false },
+  content: { type: DataTypes.TEXT, allowNull: false },
+}, { tableName: 'message_history', timestamps: true });
+
 // Associations
 User.hasMany(RolePlaySession, { foreignKey: 'userId' });
 RolePlaySession.belongsTo(User, { foreignKey: 'userId' });
@@ -218,6 +226,8 @@ User.hasMany(PitchPractice, { foreignKey: 'userId' });
 User.hasMany(PerformanceMetric, { foreignKey: 'userId' });
 User.hasMany(CoachingPlan, { foreignKey: 'userId' });
 User.hasMany(LeaderboardEntry, { foreignKey: 'userId' });
+RolePlaySession.hasMany(MessageHistory, { foreignKey: 'sessionId' });
+MessageHistory.belongsTo(RolePlaySession, { foreignKey: 'sessionId' });
 
 module.exports = {
   sequelize,
@@ -237,5 +247,6 @@ module.exports = {
   BattleCard,
   TrainingModule,
   NegotiationTactic,
-  LeaderboardEntry
+  LeaderboardEntry,
+  MessageHistory,
 };

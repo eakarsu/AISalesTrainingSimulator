@@ -20,8 +20,11 @@ function AIResponse({ data }) {
   }
 
   // Extract the text content from various response shapes
-  const content = data.response || data.analysis || data.email || data.script ||
+  const rawContent = data.response || data.analysis || data.email || data.script ||
     data.strategy || data.feedback || data.battlecard || data.advice || '';
+
+  // Handle structured JSON objects (from new AI endpoints)
+  const content = typeof rawContent === 'object' ? JSON.stringify(rawContent, null, 2) : rawContent;
 
   if (!content) return null;
 
