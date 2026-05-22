@@ -614,4 +614,143 @@ ${pitchText}`;
   }
 });
 
+// GET /api/ai/team-analytics — aggregate training session records into team dashboard (audit backlog: team performance analytics aggregator)
+// Query params: ?period=30d&team_id=...
+//   period: NNd (days), NNw (weeks), NNm (months); defaults to 30d
+//   team_id: reserved for future team scoping; current schema has no team column, so ignored
+router.get('/team-analytics', async (req, res) => {
+  try {
+    const { period, team_id } = req.query || {};
+    const periodStr = (period || '30d').toString();
+    const m = periodStr.match(/^(\d+)\s*([dwm])?$/i);
+    const n = m ? parseInt(m[1], 10) : 30;
+    const unit = m && m[2] ? m[2].toLowerCase() : 'd';
+    const days = unit === 'w' ? n * 7 : unit === 'm' ? n * 30 : n;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const { Op } = require('sequelize');
+    const sessions = await RolePlaySession.findAll({
+      where: { createdAt: { [Op.gte]: since } },
+      order: [['createdAt', 'DESC']],
+    }).catch(() => []);
+    const pitches = await PitchPractice.findAll({
+      where: { createdAt: { [Op.gte]: since } },
+      order: [['createdAt', 'DESC']],
+    }).catch(() => []);
+    const leaders = await LeaderboardEntry.findAll({ order: [['totalScore', 'DESC']] }).catch(() => []);
+    const users = await User.findAll().catch(() => []);
+
+    // Aggregate per rep
+    const userMap = new Map(users.map(u => [u.id, u]));
+    const perRepAcc = new Map();
+    const bump = (uid, kind, score) => {
+      if (!uid) return;
+      if (!perRepAcc.has(uid)) {
+        perRepAcc.set(uid, { user_id: uid, sessions: 0, pitches: 0, scores: [], session_scores: [], pitch_scores: [] });
+      }
+      const a = perRepAcc.get(uid);
+      a[kind === 'session' ? 'sessions' : 'pitches'] += 1;
+      if (typeof score === 'number' && !Number.isNaN(score)) {
+        a.scores.push(score);
+        a[kind === 'session' ? 'session_scores' : 'pitch_scores'].push(score);
+      }
+    };
+    sessions.forEach(s => bump(s.userId, 'session', typeof s.score === 'number' ? s.score : parseFloat(s.score)));
+    pitches.forEach(p => bump(p.userId, 'pitch', typeof p.score === 'number' ? p.score : parseFloat(p.score)));
+
+    const avg = arr => arr.length ? Math.round((arr.reduce((x, y) => x + y, 0) / arr.length) * 10) / 10 : null;
+    const per_rep = Array.from(perRepAcc.values()).map(a => {
+      const u = userMap.get(a.user_id);
+      const lb = leaders.find(l => l.userId === a.user_id);
+      return {
+        user_id: a.user_id,
+        name: u?.name || (lb?.userName) || `user#${a.user_id}`,
+        role: u?.role || 'rep',
+        sessions_completed: a.sessions,
+        pitches_completed: a.pitches,
+        avg_score: avg(a.scores),
+        avg_session_score: avg(a.session_scores),
+        avg_pitch_score: avg(a.pitch_scores),
+        leaderboard_total: lb ? parseFloat(lb.totalScore) : null,
+        leaderboard_win_rate: lb ? parseFloat(lb.winRate) : null,
+      };
+    }).sort((a, b) => (b.avg_score || 0) - (a.avg_score || 0));
+
+    // Team aggregate
+    const allScores = per_rep.flatMap(r => {
+      const s = [];
+      if (typeof r.avg_session_score === 'number') s.push(r.avg_session_score);
+      if (typeof r.avg_pitch_score === 'number') s.push(r.avg_pitch_score);
+      return s;
+    });
+    const sessionsCompleted = sessions.length;
+    const team_avg = avg(allScores);
+
+    // Strengths / gaps from session scores by quartile
+    const ranked = per_rep.filter(r => typeof r.avg_score === 'number');
+    const top = ranked.slice(0, Math.max(1, Math.ceil(ranked.length / 4)));
+    const bottom = ranked.slice(-Math.max(1, Math.ceil(ranked.length / 4)));
+    const top_strengths = top.map(r => ({ rep: r.name, avg_score: r.avg_score, sessions: r.sessions_completed }));
+    const top_gaps = bottom.map(r => ({ rep: r.name, avg_score: r.avg_score, sessions: r.sessions_completed }));
+
+    // Trend: split period in half, compare avg session score
+    const mid = new Date(Date.now() - (days / 2) * 24 * 60 * 60 * 1000);
+    const recentScores = sessions.filter(s => s.createdAt && new Date(s.createdAt) >= mid).map(s => parseFloat(s.score)).filter(v => !Number.isNaN(v));
+    const olderScores = sessions.filter(s => s.createdAt && new Date(s.createdAt) < mid).map(s => parseFloat(s.score)).filter(v => !Number.isNaN(v));
+    const recentAvg = avg(recentScores);
+    const olderAvg = avg(olderScores);
+    let direction = 'insufficient_data';
+    let delta = null;
+    if (recentAvg !== null && olderAvg !== null) {
+      delta = Math.round((recentAvg - olderAvg) * 10) / 10;
+      direction = delta > 1 ? 'up' : delta < -1 ? 'down' : 'flat';
+    }
+
+    // Recommendations (rule-based, no LLM dependency)
+    const recommendations = [];
+    if (team_avg !== null && team_avg < 60) {
+      recommendations.push({ priority: 'high', area: 'overall_skill', action: 'Schedule team-wide objection-handling and discovery drills; team avg is below 60.' });
+    }
+    if (top_gaps.length) {
+      recommendations.push({ priority: 'high', area: 'bottom_quartile', action: `1:1 coaching for ${top_gaps.map(g => g.rep).join(', ')}; pair with top performers.` });
+    }
+    if (direction === 'down') {
+      recommendations.push({ priority: 'medium', area: 'trend', action: `Score trend is down ${delta} pts vs first half of period; investigate recent deal contexts and refresh battle cards.` });
+    }
+    if (sessionsCompleted < per_rep.length * 2) {
+      recommendations.push({ priority: 'medium', area: 'activity', action: 'Activity volume is low (<2 sessions/rep); set a weekly minimum and surface non-completers.' });
+    }
+    if (top_strengths.length) {
+      recommendations.push({ priority: 'low', area: 'enablement', action: `Capture playbooks from top performers (${top_strengths.map(s => s.rep).join(', ')}) and share in next team review.` });
+    }
+    if (!recommendations.length) {
+      recommendations.push({ priority: 'low', area: 'maintain', action: 'No immediate red flags — continue current cadence and rotate scenarios to avoid drill fatigue.' });
+    }
+
+    res.json({
+      period: periodStr,
+      team_id: team_id || null,
+      window: { since: since.toISOString(), until: new Date().toISOString(), days },
+      per_rep,
+      team_aggregate: {
+        avg_score: team_avg,
+        sessions_completed: sessionsCompleted,
+        pitches_completed: pitches.length,
+        active_reps: per_rep.length,
+        top_strengths,
+        top_gaps,
+      },
+      trends: {
+        direction,
+        delta_points: delta,
+        recent_half_avg: recentAvg,
+        prior_half_avg: olderAvg,
+      },
+      recommendations,
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

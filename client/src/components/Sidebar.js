@@ -44,6 +44,35 @@ function Sidebar({ features, activeFeature, setActiveFeature, user, onLogout }) 
             { path: '/leaderboard-page', label: 'Score Rankings', icon: '🏆' },
             { path: '/coaching-plans-page', label: 'Coaching Plans', icon: '🏋️' },
             { path: '/my-sessions', label: 'My Sessions', icon: '📊' },
+            { path: '/ai/stalled-deal-clinic', label: 'Stalled Deal Clinic', icon: '🩺' },
+          ].map(item => (
+            <div
+              key={item.path}
+              className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
+              onClick={() => { setActiveFeature(null); navigate(item.path); }}
+            >
+              <span className="icon">{item.icon}</span>
+              {item.label}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0', paddingTop: '8px' }}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', padding: '4px 12px', marginBottom: '4px' }}>Gap Features</div>
+          {[
+            { path: '/gap-no-call-recording-ingestion', label: 'Call Recording Ingestion', icon: '🎙️' },
+            { path: '/gap-no-collateralcontent-repository-case-studies', label: 'Collateral Repository', icon: '📁' },
+            { path: '/gap-no-competitiveintelligence-retrieval', label: 'Competitive Intel', icon: '🔍' },
+            { path: '/gap-no-conversationanalysis-real-call-transcript', label: 'Conversation Analysis', icon: '💬' },
+            { path: '/gap-no-crm-integration-salesforce-hubspot', label: 'CRM Integration', icon: '🔗' },
+            { path: '/gap-no-deal-tracking-with-stages', label: 'Deal Tracking', icon: '📊' },
+            { path: '/gap-no-dealstageprogressor-nextbestaction', label: 'Deal Stage Progressor', icon: '🚀' },
+            { path: '/gap-no-notifications-or-audit-log', label: 'Notifications & Audit', icon: '🔔' },
+            { path: '/gap-no-objectiondatabase-learn-from-past-objecti', label: 'Objection Database', icon: '🛡️' },
+            { path: '/gap-no-realtime-call-coaching-live-audio', label: 'Realtime Call Coaching', icon: '🎧' },
+            { path: '/gap-no-sales-enablement-content-library', label: 'Sales Enablement Library', icon: '📚' },
+            { path: '/gap-no-sales-pipeline-opportunity-management', label: 'Sales Pipeline Mgmt', icon: '📈' },
+            { path: '/gap-no-team-performance-analytics', label: 'Team Performance', icon: '👥' },
           ].map(item => (
             <div
               key={item.path}

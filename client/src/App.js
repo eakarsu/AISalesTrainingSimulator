@@ -14,6 +14,7 @@ import DealStageProgressorPage from './pages/DealStageProgressorPage';
 import CompetitiveIntelligencePage from './pages/CompetitiveIntelligencePage';
 import ObjectionDatabasePage from './pages/ObjectionDatabasePage';
 import TeamPerformanceAnalyticsPage from './pages/TeamPerformanceAnalyticsPage';
+import StalledDealClinicPage from './pages/StalledDealClinicPage';
 import Sidebar from './components/Sidebar';
 
 // === Batch 07 Gaps & Frontend Mounts ===
@@ -36,6 +37,11 @@ import GapNoSalesEnablementContentLibrary from './pages/GapNoSalesEnablementCont
 import GapNoCrmIntegrationSalesforceHubspot from './pages/GapNoCrmIntegrationSalesforceHubspot';
 import GapNoCallRecordingIngestion from './pages/GapNoCallRecordingIngestion';
 import GapNoNotificationsOrAuditLog from './pages/GapNoNotificationsOrAuditLog';
+import CodexCustomVizFeature from './pages/CodexCustomVizFeature';
+import CodexOperationsFeature from './pages/CodexOperationsFeature';
+
+import TimelineView from './pages/TimelineView';
+
 // === End Batch 07 ===
 
 
@@ -99,6 +105,10 @@ function App() {
         />
         <main className="main-content">
           <Routes>
+        <Route path="/insights/timeline" element={<TimelineView />} />
+        <Route path="/codex/custom-viz" element={<CodexCustomVizFeature />} />
+        <Route path="/codex/operations" element={<CodexOperationsFeature />} />
+
             <Route path="/" element={<Dashboard features={features} setActiveFeature={setActiveFeature} />} />
             {features.map(f => (
               <Route key={f.key} path={`/${f.key}`} element={<FeaturePage feature={f} />} />
@@ -112,8 +122,8 @@ function App() {
             <Route path="/ai/competitive-intelligence" element={<CompetitiveIntelligencePage />} />
             <Route path="/ai/objection-database" element={<ObjectionDatabasePage />} />
             <Route path="/ai/team-performance-analytics" element={<TeamPerformanceAnalyticsPage />} />
-            <Route path="*" element={<Navigate to="/" />} />
-          // === Batch 07 Gaps & Frontend Mounts ===
+            <Route path="/ai/stalled-deal-clinic" element={<StalledDealClinicPage />} />
+          {/* === Batch 07 Gaps & Frontend Mounts === */}
           <Route path='/cf-realtime-coaching-during-calls' element={<CfRealtimeCoachingDuringCalls />} />
           <Route path='/cf-postcall-analysis-coaching' element={<CfPostcallAnalysisCoaching />} />
           <Route path='/cf-competitor-battlecard-generator' element={<CfCompetitorBattlecardGenerator />} />
@@ -133,7 +143,8 @@ function App() {
           <Route path='/gap-no-crm-integration-salesforce-hubspot' element={<GapNoCrmIntegrationSalesforceHubspot />} />
           <Route path='/gap-no-call-recording-ingestion' element={<GapNoCallRecordingIngestion />} />
           <Route path='/gap-no-notifications-or-audit-log' element={<GapNoNotificationsOrAuditLog />} />
-          // === End Batch 07 ===
+          {/* === End Batch 07 === */}
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
       </div>

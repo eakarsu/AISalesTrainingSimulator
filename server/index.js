@@ -43,6 +43,7 @@ app.use('/api/training', createCrudRouter('TrainingModule'));
 app.use('/api/negotiations', createCrudRouter('NegotiationTactic'));
 app.use('/api/leaderboard', createCrudRouter('LeaderboardEntry'));
 app.use('/api/message-history', createCrudRouter('MessageHistory'));
+app.use('/api/stalled-deal-clinic', require('./routes/stalledDealClinic'));
 
 // Serve React app in production
 if (process.env.NODE_ENV === 'production') {
