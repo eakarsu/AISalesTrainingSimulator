@@ -4,13 +4,19 @@ const { sequelize, User, SalesScenario, RolePlaySession, Objection, PitchPractic
 } = require('../models');
 const bcrypt = require('bcryptjs');
 
+function requireDemoPassword() {
+  const password = process.env.DEMO_PASSWORD || process.env.SEED_DEMO_PASSWORD || process.env.DEMO_SEED_PASSWORD || '';
+  if (password.length < 12 || password.length > 1024) throw new Error('DEMO_PASSWORD must contain 12-1024 characters');
+  return password;
+}
+
 async function seed() {
   try {
     await sequelize.sync({ force: true });
     console.log('Database synced.');
 
     // Users
-    const hash = await bcrypt.hash('password123', 10);
+    const hash = await bcrypt.hash(requireDemoPassword(), 10);
     const users = await User.bulkCreate([
       { name: 'John Mitchell', email: 'john@salesteam.com', password: hash, role: 'admin', avatar: 'JM' },
       { name: 'Sarah Chen', email: 'sarah@salesteam.com', password: hash, role: 'manager', avatar: 'SC' },
