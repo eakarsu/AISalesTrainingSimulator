@@ -4,6 +4,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../../.env') }
 async function callOpenRouter(systemPrompt, userMessage, options = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL || (process.env.OPENROUTER_MODEL || 'anthropic/claude-haiku-4.5');
+  const baseUrl = new URL(process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1');
 
   if (!apiKey || !apiKey.trim() || apiKey === 'your-openrouter-api-key') {
     const err = new Error('OpenRouter API key not configured (set OPENROUTER_API_KEY)');
@@ -25,8 +26,9 @@ async function callOpenRouter(systemPrompt, userMessage, options = {}) {
 
   return new Promise((resolve, reject) => {
     const req = https.request({
-      hostname: 'openrouter.ai',
-      path: '/api/v1/chat/completions',
+      hostname: baseUrl.hostname,
+      port: baseUrl.port || 443,
+      path: `${baseUrl.pathname.replace(/\/$/, '')}/chat/completions`,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,10 +42,14 @@ async function callOpenRouter(systemPrompt, userMessage, options = {}) {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          if (parsed.error) {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(parsed.error?.message || `OpenRouter HTTP ${res.statusCode}`));
+          } else if (parsed.error) {
             reject(new Error(parsed.error.message || 'OpenRouter API error'));
           } else {
-            resolve(parsed.choices?.[0]?.message?.content || 'No response generated.');
+            const content = parsed.choices?.[0]?.message?.content;
+            if (!content || !String(content).trim()) reject(new Error('OpenRouter returned an empty response'));
+            else resolve(content);
           }
         } catch (e) {
           reject(new Error('Failed to parse OpenRouter response'));

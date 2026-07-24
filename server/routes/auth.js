@@ -5,6 +5,21 @@ const { User } = require('../models');
 const router = express.Router();
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
+router.post('/register', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !name || typeof password !== 'string' || password.length < 12) {
+      return res.status(400).json({ error: 'Name, email, and a password of at least 12 characters are required' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await User.create({ email, password: hashedPassword, name, role: 'rep' });
+    return res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+  } catch (err) {
+    if (err.name === 'SequelizeUniqueConstraintError') return res.status(409).json({ error: 'Email already exists' });
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
