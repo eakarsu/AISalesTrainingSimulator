@@ -61,7 +61,7 @@ function Login({ onLogin }) {
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
           <button className="btn btn-secondary" onClick={fillDemo} style={{ width: '100%' }}>
-            Fill Demo Credentials
+            Auto Fill Demo Credentials
           </button>
         </div>
 
