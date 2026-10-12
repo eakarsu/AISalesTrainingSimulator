@@ -1,3 +1,5 @@
+import NativeAIControls from "./NativeAIControls";
+import { salesExample } from "./salesExamples";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from './AIResponse';
@@ -122,7 +124,7 @@ function AIPanel({ feature, onClose }) {
   };
 
   return (
-    <div className="ai-response animate-fade" style={{ marginBottom: 20 }}>
+    <NativeAIControls busy={loading} context="Sales training" presets={[0,1,2].map(index=>({name:['Quick brief','Team planning','Detailed review'][index],fill:()=>{setFormData(Object.fromEntries(config.fields.map(field=>[field.key,field.key==='transcript'&&formData.transcript?formData.transcript:salesExample(field.key,index)])));return{filled:config.fields.length,manual:[]};}}))}><div className="ai-response animate-fade" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3>{config.title}</h3>
         <button className="close-btn" onClick={onClose}>✕</button>
@@ -168,7 +170,7 @@ function AIPanel({ feature, onClose }) {
       )}
 
       {response && !loading && <AIResponse data={response} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

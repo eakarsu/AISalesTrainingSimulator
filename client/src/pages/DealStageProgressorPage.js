@@ -1,3 +1,4 @@
+import NativeAIControls from "../components/NativeAIControls";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -43,7 +44,7 @@ function DealStageProgressorPage() {
   };
 
   return (
-    <div className="feature-page">
+    <NativeAIControls busy={loading} context="Sales training"><div className="feature-page">
       <header className="page-header">
         <h1>💰 Deal Stage Progressor</h1>
         <p>Stage health, next-best actions, champion mapping, win probability, and drafted messaging.</p>
@@ -118,7 +119,7 @@ function DealStageProgressorPage() {
 
       {loading && <div className="loading">AI is analyzing the deal...</div>}
       {result && <AIResponse data={result} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

@@ -1,17 +1,21 @@
+import { useRef as useDemoLoginRef, useState as useDemoLoginState } from 'react';
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
 
 function Login({ onLogin }) {
+  const demoLoginLock = useDemoLoginRef(false);
+  const [demoLoginBusy, setDemoLoginBusy] = useDemoLoginState(false);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e, demoLoginCredentials) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const { data } = await api.post('/auth/login', { email: (demoLoginCredentials?.email ?? email), password: (demoLoginCredentials?.password ?? password) });
       localStorage.setItem('token', data.token);
       onLogin(data.user);
       toast.success('Welcome back!');
@@ -20,11 +24,6 @@ function Login({ onLogin }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = () => {
-    setEmail(process.env.REACT_APP_DEMO_EMAIL || '');
-    setPassword(process.env.REACT_APP_DEMO_PASSWORD || '');
   };
 
   return (
@@ -60,8 +59,14 @@ function Login({ onLogin }) {
         </form>
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <button className="btn btn-secondary" onClick={fillDemo} style={{ width: '100%' }}>
-            Auto Fill Demo Credentials
+          <button disabled={demoLoginBusy || loading} className="btn btn-secondary" onClick={async(event)=>{
+ if(demoLoginLock.current||loading)return;
+ demoLoginLock.current=true;setDemoLoginBusy(true);
+ try{const {data:credentials}=await api.get('/auth/demo-credentials');if(!credentials?.email||!credentials?.password)throw Error('Demo credentials are unavailable.');setEmail(credentials.email);setPassword(credentials.password);await handleSubmit(event,credentials);}
+ catch(err){toast.error(err.response?.data?.error||err.message||'Demo login failed.');}
+ finally{demoLoginLock.current=false;setDemoLoginBusy(false);}
+}} style={{ width: '100%' }}>
+            Log In as Demo
           </button>
         </div>
 

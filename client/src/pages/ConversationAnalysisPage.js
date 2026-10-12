@@ -1,3 +1,5 @@
+import { salesExample } from "../components/salesExamples";
+import NativeAIControls from "../components/NativeAIControls.jsx";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -35,7 +37,7 @@ function ConversationAnalysisPage() {
   };
 
   return (
-    <div className="feature-page">
+    <NativeAIControls busy={loading} context="SalesTrainingSimulator" presets={[0,1,2].map(index=>({name:['Quick brief','Team planning','Detailed review'][index],fill:()=>{setTranscript(transcript||salesExample('transcript',index));setScenario(salesExample('scenario',index));setProductName(salesExample('productName',index));return{filled:3,manual:[]};}}))}><div className="feature-page">
       <header className="page-header">
         <h1>🎙️ Conversation Analysis</h1>
         <p>Score a sales-call transcript across 6 dimensions, with talk-ratio, missed opportunities, and coaching actions.</p>
@@ -45,7 +47,7 @@ function ConversationAnalysisPage() {
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>Transcript *</label>
-            <textarea
+            <textarea data-ai-field={"transcript"}
               className="form-control"
               rows={10}
               value={transcript}
@@ -55,7 +57,7 @@ function ConversationAnalysisPage() {
           </div>
           <div className="form-group">
             <label>Scenario context</label>
-            <input
+            <input data-ai-field={"scenario"}
               className="form-control"
               value={scenario}
               onChange={(e) => setScenario(e.target.value)}
@@ -64,7 +66,7 @@ function ConversationAnalysisPage() {
           </div>
           <div className="form-group">
             <label>Product name</label>
-            <input
+            <input data-ai-field={"productName"}
               className="form-control"
               value={productName}
               onChange={(e) => setProductName(e.target.value)}
@@ -82,7 +84,7 @@ function ConversationAnalysisPage() {
 
       {loading && <div className="loading">AI is analyzing the conversation...</div>}
       {result && <AIResponse data={result} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

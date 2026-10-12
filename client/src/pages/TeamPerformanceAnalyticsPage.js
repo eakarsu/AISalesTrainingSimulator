@@ -1,3 +1,4 @@
+import NativeAIControls from "../components/NativeAIControls";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -28,7 +29,7 @@ function TeamPerformanceAnalyticsPage() {
   };
 
   return (
-    <div className="feature-page">
+    <NativeAIControls busy={loading} context="Sales training"><div className="feature-page">
       <header className="page-header">
         <h1>📊 Team Performance Analytics</h1>
         <p>Synthesise leaderboard + recent sessions/pitches into coaching priorities and a 2-week action plan.</p>
@@ -67,7 +68,7 @@ function TeamPerformanceAnalyticsPage() {
 
       {loading && <div className="loading">AI is analysing team activity...</div>}
       {result && <AIResponse data={result} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

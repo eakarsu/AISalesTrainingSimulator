@@ -5,6 +5,15 @@ const { User } = require('../models');
 const router = express.Router();
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
+router.get('/demo-credentials',(req,res)=>{
+ if(process.env.NODE_ENV==='production')return res.status(404).json({error:'Not found'});
+ if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress))return res.status(403).json({error:'Demo login is available only in the local workspace.'});
+ const email=process.env.PROVISION_ADMIN_EMAIL||process.env.DEMO_EMAIL||process.env.ADMIN_EMAIL;
+ const password=process.env.PROVISION_ADMIN_PASSWORD||process.env.DEMO_PASSWORD||process.env.ADMIN_PASSWORD;
+ if(!email||!password)return res.status(503).json({error:'Demo credentials are not configured.'});
+ res.set('Cache-Control','no-store');return res.json({email,password});
+});
+
 router.post('/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;

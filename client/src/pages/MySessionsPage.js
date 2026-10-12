@@ -1,3 +1,4 @@
+import AIResponse from "../components/AIResponse";
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 
@@ -68,7 +69,7 @@ function MySessionsPage() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[...sessions].reverse().map((session) => (
-            <div key={session.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div key={session.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px 20px', flexWrap: 'wrap', display: 'flex', alignItems: 'center', gap: '16px' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: '600', fontSize: '14px', marginBottom: '4px' }}>{session.title}</div>
                 <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -89,6 +90,7 @@ function MySessionsPage() {
                   {session.status?.replace('_', ' ') || 'unknown'}
                 </span>
               </div>
+              {(session.feedback||session.transcript)&&<details style={{flexBasis:'100%',width:'100%',minWidth:0}}><summary>View session report</summary>{session.feedback&&<AIResponse data={session.feedback}/>}<details><summary>Session transcript</summary><AIResponse data={session.transcript}/></details></details>}
             </div>
           ))}
         </div>

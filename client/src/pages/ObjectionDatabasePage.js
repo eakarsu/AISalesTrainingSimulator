@@ -1,3 +1,4 @@
+import NativeAIControls from "../components/NativeAIControls";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -41,7 +42,7 @@ function ObjectionDatabasePage() {
   };
 
   return (
-    <div className="feature-page">
+    <NativeAIControls busy={loading} context="Sales training"><div className="feature-page">
       <header className="page-header">
         <h1>🛡️ Objection Database</h1>
         <p>Generate a structured objection library with canonical responses, traps to avoid, and follow-up questions.</p>
@@ -109,7 +110,7 @@ function ObjectionDatabasePage() {
 
       {loading && <div className="loading">AI is curating your objection library...</div>}
       {result && <AIResponse data={result} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

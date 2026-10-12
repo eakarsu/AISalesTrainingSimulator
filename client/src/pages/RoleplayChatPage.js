@@ -1,3 +1,5 @@
+import AIResponse from "../components/AIResponse";
+import NativeAIControls from "../components/NativeAIControls.jsx";
 import React, { useState, useRef, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -14,7 +16,7 @@ function RoleplayChatPage() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages]);
 
   const startSession = async () => {
@@ -49,7 +51,7 @@ function RoleplayChatPage() {
         buyerPersona,
       });
 
-      const aiResponse = data.response;
+      const aiResponse = typeof data.response === 'string' ? data.response : JSON.stringify(data.response ?? data);
       setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
 
       // Check for assessment
@@ -83,7 +85,7 @@ function RoleplayChatPage() {
   const roleLabel = { user: 'You (Sales Rep)', assistant: 'AI Buyer', system: 'System' };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)' }}>
+    <NativeAIControls busy={loading} context="SalesTrainingSimulator"><div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)' }}>
       <div className="page-header" style={{ flexShrink: 0 }}>
         <h1>Roleplay Chat</h1>
         {sessionStarted && (
@@ -96,7 +98,7 @@ function RoleplayChatPage() {
           <h3 style={{ marginBottom: '20px' }}>Configure Your Roleplay Session</h3>
           <div className="form-group">
             <label>Sales Scenario</label>
-            <textarea
+            <textarea data-ai-field={"scenario"}
               value={scenario}
               onChange={e => setScenario(e.target.value)}
               rows={2}
@@ -105,7 +107,7 @@ function RoleplayChatPage() {
           </div>
           <div className="form-group">
             <label>Buyer Persona</label>
-            <input
+            <input data-ai-field={"buyerPersona"}
               type="text"
               value={buyerPersona}
               onChange={e => setBuyerPersona(e.target.value)}
@@ -138,13 +140,13 @@ function RoleplayChatPage() {
                   {roleLabel[msg.role] || msg.role}
                 </div>
                 <div style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
-                  {msg.content.split('---ASSESSMENT---')[0]}
+                  {msg.role==='assistant'?<AIResponse data={msg.content.split('---ASSESSMENT---')[0]}/>:msg.content.split('---ASSESSMENT---')[0]}
                 </div>
                 {msg.content.includes('---ASSESSMENT---') && (
                   <div style={{ marginTop: '12px', padding: '12px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px', borderLeft: '3px solid #10b981' }}>
                     <div style={{ fontSize: '12px', fontWeight: '700', color: '#10b981', marginBottom: '6px' }}>ASSESSMENT</div>
                     <div style={{ fontSize: '13px', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
-                      {msg.content.split('---ASSESSMENT---')[1]}
+                      <AIResponse data={msg.content.split('---ASSESSMENT---')[1]}/>
                     </div>
                   </div>
                 )}
@@ -161,7 +163,7 @@ function RoleplayChatPage() {
           {/* Input */}
           {!assessment ? (
             <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-              <textarea
+              <textarea data-ai-field={"input"}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -186,7 +188,7 @@ function RoleplayChatPage() {
           )}
         </div>
       )}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

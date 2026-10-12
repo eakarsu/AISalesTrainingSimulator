@@ -1,3 +1,4 @@
+import NativeAIControls from "../components/NativeAIControls";
 import React, { useState } from 'react';
 import api from '../services/api';
 import AIResponse from '../components/AIResponse';
@@ -39,7 +40,7 @@ function CompetitiveIntelligencePage() {
   };
 
   return (
-    <div className="feature-page">
+    <NativeAIControls busy={loading} context="Sales training"><div className="feature-page">
       <header className="page-header">
         <h1>⚔️ Competitive Intelligence</h1>
         <p>Competitor battle brief with rebuttals, trap questions, and recommended proof assets.</p>
@@ -99,7 +100,7 @@ function CompetitiveIntelligencePage() {
 
       {loading && <div className="loading">AI is generating competitive intel...</div>}
       {result && <AIResponse data={result} />}
-    </div>
+    </div></NativeAIControls>
   );
 }
 

@@ -1,3 +1,4 @@
+import AIResponse from "../components/AIResponse";
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import api from '../services/api';
@@ -85,18 +86,7 @@ function CoachingPlansPage() {
                     <div style={{ marginBottom: '12px' }}>
                       <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px', textTransform: 'uppercase' }}>Milestones</div>
                       <div style={{ fontSize: '13px', color: 'var(--text-primary)' }}>
-                        {(() => {
-                          try {
-                            const parsed = JSON.parse(plan.milestones);
-                            return Array.isArray(parsed) ? parsed.map((m, i) => (
-                              <div key={i} style={{ padding: '4px 0', display: 'flex', gap: '8px' }}>
-                                <span style={{ color: '#10b981' }}>✓</span> {m}
-                              </div>
-                            )) : plan.milestones;
-                          } catch (_) {
-                            return plan.milestones;
-                          }
-                        })()}
+                        <AIResponse data={plan.milestones}/>
                       </div>
                     </div>
                   )}
