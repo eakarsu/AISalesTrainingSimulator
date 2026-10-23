@@ -32,13 +32,14 @@ function DetailPanel({ item, feature, onClose, onEdit, onDelete }) {
   };
 
   return (
-    <div className="detail-overlay" onClick={onClose}>
-      <div className="detail-panel" onClick={e => e.stopPropagation()}>
+    <div className="detail-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={onClose}>
+      <div className="detail-panel" role="dialog" aria-modal="true" style={{ position: "relative", right: "auto", top: "auto", height: "auto", maxHeight: "85vh", width: "min(640px, 92vw)", borderRadius: 14, overflow: "auto" }} onClick={e => e.stopPropagation()}>
         <div className="detail-header">
           <h2>{feature.icon} {item.title || item.name || item.competitorName || item.productName || item.metricName || `Item #${item.id}`}</h2>
           <div className="actions">
             <button className="btn btn-sm btn-secondary" onClick={onEdit}>Edit</button>
             <button className="btn btn-sm btn-danger" onClick={onDelete}>Delete</button>
+            <button className="btn btn-sm btn-secondary" onClick={onClose}>Cancel</button>
             <button className="close-btn" onClick={onClose}>✕</button>
           </div>
         </div>

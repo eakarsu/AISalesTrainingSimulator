@@ -33,6 +33,7 @@ for(const [route,model] of [
   ['/api/battlecards','BattleCard'],['/api/training','TrainingModule'],['/api/negotiations','NegotiationTactic'],
   ['/api/leaderboard','LeaderboardEntry'],['/api/message-history','MessageHistory'],
 ]) app.use(route,createCrudRouter(model));
+app.use('/api/feature-pack',require('./routes/featurePack'));
 
 if(process.env.ENABLE_LEGACY_PROVIDER_ROUTES==='true'){
   app.use('/api/ai',require('./routes/ai'));

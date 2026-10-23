@@ -16,6 +16,7 @@ import ObjectionDatabasePage from './pages/ObjectionDatabasePage';
 import TeamPerformanceAnalyticsPage from './pages/TeamPerformanceAnalyticsPage';
 import StalledDealClinicPage from './pages/StalledDealClinicPage';
 import Sidebar from './components/Sidebar';
+import FeaturePackPanel from './components/FeaturePackPanel.jsx';
 
 // === Batch 07 Gaps & Frontend Mounts ===
 import CfRealtimeCoachingDuringCalls from './pages/CfRealtimeCoachingDuringCalls';
@@ -106,6 +107,7 @@ function App() {
         <main className="main-content">
           <Routes>
         <Route path="/insights/timeline" element={<TimelineView />} />
+        <Route path="/feature-pack" element={<FeaturePackPanel />} />
         <Route path="/codex/custom-viz" element={<CodexCustomVizFeature />} />
         <Route path="/codex/operations" element={<CodexOperationsFeature />} />
 

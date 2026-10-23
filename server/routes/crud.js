@@ -20,7 +20,8 @@ function createCrudRouter(modelName) {
   // GET all with pagination
   router.get('/', auth, async (req, res) => {
     try {
-      const { page = 1, limit = 20, search } = req.query;
+      const { page = 1, limit = 20, search, q, status } = req.query;
+      const term = search || q;
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
       const options = {
@@ -28,6 +29,14 @@ function createCrudRouter(modelName) {
         limit: parseInt(limit),
         offset,
       };
+      const where = {};
+      if (status && Model.rawAttributes && Model.rawAttributes.status) where.status = status;
+      if (term && Model.rawAttributes) {
+        const { Op } = require('sequelize');
+        const fields = Object.entries(Model.rawAttributes).filter(([,a])=>['STRING','TEXT'].includes(String(a.type && a.type.key || a.type))).map(([k])=>k);
+        if (fields.length) where[Op.or] = fields.map((f)=>({ [f]: { [Op.iLike]: `%${term}%` } }));
+      }
+      if (Object.keys(where).length || (where[require('sequelize').Op.or])) options.where = where;
 
       const { count, rows } = await Model.findAndCountAll(options);
 
@@ -43,6 +52,18 @@ function createCrudRouter(modelName) {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET export (CSV/JSON) — must precede /:id
+  router.get('/export', auth, async (req, res) => {
+    try {
+      const rows = await Model.findAll({ order: [['createdAt','DESC']] });
+      const plain = rows.map((r)=> (r && r.toJSON ? r.toJSON() : r));
+      const { filterRecords, toCSV } = require('../featurePack');
+      const filtered = filterRecords(plain, req.query);
+      if (String(req.query.format||'json').toLowerCase()==='csv') { res.setHeader('Content-Type','text/csv'); res.setHeader('Content-Disposition','attachment; filename="export.csv"'); return res.send(toCSV(filtered)); }
+      res.setHeader('Content-Disposition','attachment; filename="export.json"'); return res.json({ exportedAt:new Date().toISOString(), count:filtered.length, records:filtered });
+    } catch (err) { return res.status(500).json({ error: err.message }); }
   });
 
   // GET by id
